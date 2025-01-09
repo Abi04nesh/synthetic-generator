@@ -1,8 +1,12 @@
 import pandas as pd
+import numpy as np
 from django.shortcuts import render
 from django.core.files.storage import FileSystemStorage
 from django.conf import settings
-import os
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.model_selection import train_test_split
+import os 
 
 def upload_dataset(request):
     context = {}
@@ -20,21 +24,61 @@ def upload_dataset(request):
             context["error"] = f"Error reading the file: {e}"
             return render(request, "analyzer/upload.html", context)
 
-        # Analyze and clean dataset
+        # Data Cleaning and ML-Based Imputation
         cleaned_df = df.copy()
 
-        # Fill numerical missing values using interpolation
+        # Replace empty strings and invalid values with NaN
+        cleaned_df.replace(r'^\s*$', np.nan, regex=True, inplace=True)
+
+        # Fill numerical columns using RandomForestRegressor
         for column in cleaned_df.select_dtypes(include=["float64", "int64"]):
             if cleaned_df[column].isnull().sum() > 0:
-                cleaned_df[column] = cleaned_df[column].interpolate(method='linear', limit_direction='forward', axis=0)
-                # Fill remaining NaN (if any after interpolation) with mean
-                cleaned_df[column].fillna(cleaned_df[column].mean(), inplace=True)
+                target = cleaned_df[column]
+                predictors = cleaned_df.drop(columns=[column])
 
-        # Fill string missing values based on category frequencies
+                # Handle missing values in predictors
+                imputer = SimpleImputer(strategy="mean")
+                predictors_imputed = imputer.fit_transform(pd.get_dummies(predictors, drop_first=True))
+                
+                # Drop rows where target is null
+                valid_indices = ~target.isnull()
+                X = predictors_imputed[valid_indices]
+                y = target[valid_indices]
+
+                if len(y) > 0:
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    model = RandomForestRegressor(random_state=42)
+                    model.fit(X_train, y_train)
+
+                    # Predict missing values
+                    missing_indices = target.isnull()
+                    predictors_missing = predictors_imputed[missing_indices]
+                    cleaned_df.loc[missing_indices, column] = model.predict(predictors_missing)
+
+        # Fill categorical columns using RandomForestClassifier
         for column in cleaned_df.select_dtypes(include=["object"]):
             if cleaned_df[column].isnull().sum() > 0:
-                mode_value = cleaned_df[column].mode()[0]
-                cleaned_df[column].fillna(mode_value, inplace=True)
+                target = cleaned_df[column]
+                predictors = cleaned_df.drop(columns=[column])
+
+                # Handle missing values in predictors
+                imputer = SimpleImputer(strategy="most_frequent")
+                predictors_imputed = imputer.fit_transform(pd.get_dummies(predictors, drop_first=True))
+
+                # Drop rows where target is null
+                valid_indices = ~target.isnull()
+                X = predictors_imputed[valid_indices]
+                y = target[valid_indices]
+
+                if len(y) > 0:
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    model = RandomForestClassifier(random_state=42)
+                    model.fit(X_train, y_train)
+
+                    # Predict missing values
+                    missing_indices = target.isnull()
+                    predictors_missing = predictors_imputed[missing_indices]
+                    cleaned_df.loc[missing_indices, column] = model.predict(predictors_missing)
 
         # Save cleaned dataset
         cleaned_file_path = os.path.join(settings.MEDIA_ROOT, "cleaned_" + dataset_file.name)
