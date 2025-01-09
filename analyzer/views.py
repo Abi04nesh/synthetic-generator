@@ -1,9 +1,8 @@
-import os
 import pandas as pd
 from django.shortcuts import render
 from django.core.files.storage import FileSystemStorage
-from collections import Counter
 from django.conf import settings
+import os
 
 def upload_dataset(request):
     context = {}
@@ -17,48 +16,31 @@ def upload_dataset(request):
         # Read the dataset
         try:
             df = pd.read_csv(file_full_path)
-
-            # Handle missing values based on column type
-            for col in df.columns:
-                if df[col].isnull().sum() > 0:  # Only handle missing values if any
-                    if df[col].dtype in ["int64", "float64"]:
-                        # Impute numerical values with the mean
-                        df[col] = df[col].fillna(df[col].mean())
-                    elif df[col].dtype == "object":
-                        # Impute string columns intelligently
-                        most_frequent = impute_strings_by_category(df, col)
-                        df[col] = df[col].fillna(most_frequent)
-                    elif df[col].dtype in ["datetime64[ns]", "datetime64"]:
-                        # Impute dates with forward fill
-                        df[col] = df[col].fillna(method="ffill").fillna(method="bfill")
-
-            # Save the cleaned dataset for download
-            cleaned_file_path = os.path.join(settings.MEDIA_ROOT, "cleaned_dataset.csv")
-            df.to_csv(cleaned_file_path, index=False)
-
-            # Provide download URL and success message
-            context = {
-                "message": "Dataset processed successfully.",
-                "download_url": fs.url("cleaned_dataset.csv"),
-            }
-
         except Exception as e:
-            context["error"] = f"Error processing file: {str(e)}"
+            context["error"] = f"Error reading the file: {e}"
+            return render(request, "analyzer/upload.html", context)
+
+        # Analyze and clean dataset
+        cleaned_df = df.copy()
+
+        # Fill numerical missing values using interpolation
+        for column in cleaned_df.select_dtypes(include=["float64", "int64"]):
+            if cleaned_df[column].isnull().sum() > 0:
+                cleaned_df[column] = cleaned_df[column].interpolate(method='linear', limit_direction='forward', axis=0)
+                # Fill remaining NaN (if any after interpolation) with mean
+                cleaned_df[column].fillna(cleaned_df[column].mean(), inplace=True)
+
+        # Fill string missing values based on category frequencies
+        for column in cleaned_df.select_dtypes(include=["object"]):
+            if cleaned_df[column].isnull().sum() > 0:
+                mode_value = cleaned_df[column].mode()[0]
+                cleaned_df[column].fillna(mode_value, inplace=True)
+
+        # Save cleaned dataset
+        cleaned_file_path = os.path.join(settings.MEDIA_ROOT, "cleaned_" + dataset_file.name)
+        cleaned_df.to_csv(cleaned_file_path, index=False)
+
+        # Provide cleaned file for download
+        context["download_url"] = settings.MEDIA_URL + "cleaned_" + dataset_file.name
 
     return render(request, "analyzer/upload.html", context)
-
-
-def impute_strings_by_category(df, col):
-    """
-    Impute missing string values intelligently based on other columns in the dataset.
-    """
-    # Get all rows where the column is not null
-    non_null_rows = df[df[col].notnull()]
-
-    # Identify categories from another column (e.g., assuming 'Category' column exists)
-    if "Category" in df.columns:
-        category_map = non_null_rows.groupby("Category")[col].apply(lambda x: Counter(x).most_common(1)[0][0]).to_dict()
-        return df["Category"].map(category_map).fillna(df[col].mode()[0])  # Use most frequent as fallback
-    else:
-        # Fallback: Use the most frequent value in the column
-        return df[col].mode()[0]
