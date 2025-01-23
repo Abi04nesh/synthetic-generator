@@ -41,5 +41,5 @@ This project, ** Synthetic datset Generator**, is a Django-based application des
 ## Notes
 - All temporary datasets and cleaned datasets are stored in the `media/` directory.
 - Example datasets are provided for testing.
-- Database migrations are stored in the `migrations/` directory of the `analyzer/` app.
+
 
