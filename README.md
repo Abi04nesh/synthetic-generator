@@ -1,6 +1,6 @@
-# abi04nesh Synthetic Generator
+# Synthetic Datastet Generator
 
-This project, **abi04nesh Synthetic Generator**, is a Django-based application designed for dataset processing and analysis. The project includes tools for uploading datasets, performing analysis, handling missing values, and generating cleaned datasets.
+This project, ** Synthetic datset Generator**, is a Django-based application designed for dataset processing and analysis. The project includes tools for uploading datasets, performing analysis, handling missing values, and generating cleaned datasets.
 
 
 
